@@ -9,14 +9,21 @@ và gửi thông báo qua Telegram.
 import json
 import os
 import re
+import socket
 import sys
+import time
 from pathlib import Path
 
 import requests
+import urllib3.util.connection as urllib3_cn
 from bs4 import BeautifulSoup
 
-# Trang tổng hợp Tai nghe Type-C (mọi hãng) — EarPods (USB-C) của Apple sẽ
-# xuất hiện ở đây nếu đang mở bán.
+def _allowed_gai_family():
+    return socket.AF_INET
+
+
+urllib3_cn.allowed_gai_family = _allowed_gai_family
+
 URL = "https://www.thegioididong.com/may-doi-tra/tai-nghe?g=type-c"
 STATE_FILE = Path(__file__).parent / "state.json"
 
@@ -53,10 +60,22 @@ def save_state(state: dict) -> None:
 
 
 def fetch_html(url: str) -> str:
-    resp = requests.get(url, headers=HEADERS, timeout=30)
-    print(f"[DEBUG] HTTP status: {resp.status_code}, độ dài HTML: {len(resp.text)} ký tự")
-    resp.raise_for_status()
-    return resp.text
+    last_exc = None
+    for attempt in range(1, 4):
+        try:
+            resp = requests.get(url, headers=HEADERS, timeout=(10, 20))
+            print(f"[DEBUG] (lần {attempt}) HTTP status: {resp.status_code}, "
+                  f"độ dài HTML: {len(resp.text)} ký tự")
+            resp.raise_for_status()
+            return resp.text
+        except requests.RequestException as e:
+            last_exc = e
+            print(f"[DEBUG] (lần {attempt}) Lỗi kết nối: {e}")
+            if attempt < 3:
+                wait = 5 * attempt
+                print(f"[DEBUG] Thử lại sau {wait}s...")
+                time.sleep(wait)
+    raise last_exc
 
 
 def find_earpods_items(html: str):
